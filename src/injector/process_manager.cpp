@@ -95,9 +95,6 @@ namespace Injector {
 
         if (m_arch != injectorArch) {
             std::string error = "Architecture mismatch!\n";
-            error += "  Injector: " + std::string(injectorArchName) + "\n";
-            error += "  Target:   " + GetArchName(m_arch) + "\n";
-            error += "  Solution: Use chromelevator_" + std::string(m_arch == 0xAA64 ? "arm64" : "x64") + ".exe";
             throw std::runtime_error(error);
         }
     }

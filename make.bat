@@ -14,13 +14,13 @@ set "ENCRYPTOR_EXE_NAME=encryptor.exe"
 set "PAYLOAD_HEADER=payload_data.hpp"
 
 :: Compiler Flags
-set "CFLAGS_COMMON=/nologo /W3 /WX- /O1 /Os /MT /GS- /Gy /GL /GR- /Gw /Zc:threadSafeInit-"
+set "CFLAGS_COMMON=/nologo /W3 /WX- /O1 /Os /MT /GS- /Gy /GR- /Gw /Zc:threadSafeInit-"
 set "CFLAGS_CPP=/std:c++17 /EHsc"
 set "CFLAGS_SQLITE=/nologo /W0 /O1 /Os /MT /GS- /Gy /GL /DSQLITE_OMIT_LOAD_EXTENSION"
 
 :: Linker Flags
-set "LFLAGS_COMMON=/NOLOGO /LTCG /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT /INCREMENTAL:NO"
-set "LFLAGS_MERGE=/MERGE:.rdata=.text"
+set "LFLAGS_COMMON=/NOLOGO /OPT:NOREF /OPT:NOICF /DYNAMICBASE /NXCOMPAT /INCREMENTAL:NO"
+set "LFLAGS_MERGE="
 
 :: Create build directory
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"

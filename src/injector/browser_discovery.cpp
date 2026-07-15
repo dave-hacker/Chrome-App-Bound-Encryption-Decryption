@@ -13,10 +13,7 @@ namespace Injector {
     namespace {
         const std::map<std::wstring, std::pair<std::wstring, std::string>> g_browserMap = {
             {L"chrome", {L"chrome.exe", "Chrome"}},
-            {L"chrome-beta", {L"chrome.exe", "Chrome Beta"}},
             {L"edge", {L"msedge.exe", "Edge"}},
-            {L"brave", {L"brave.exe", "Brave"}},
-            {L"avast", {L"AvastBrowser.exe", "Avast"}}
         };
     }
 
@@ -46,14 +43,14 @@ namespace Injector {
 
     static bool ValidatePathForBrowser(const std::wstring& path, const std::wstring& browserType) {
         std::wstring lowerPath = path;
-        std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(), ::towlower);
+        std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(), 
+            [](wchar_t ch) -> wchar_t
+            {
+                return static_cast<wchar_t>(::towlower(ch));
+            });
 
-        if (browserType == L"chrome") {
-            return lowerPath.find(L"\\google\\chrome\\") != std::wstring::npos &&
-                   lowerPath.find(L"\\google\\chrome beta\\") == std::wstring::npos;
-        } else if (browserType == L"chrome-beta") {
-            return lowerPath.find(L"\\google\\chrome beta\\") != std::wstring::npos;
-        }
+        if (browserType == L"chrome") 
+            return lowerPath.find(L"\\google") != std::wstring::npos;
         return true;
     }
 
