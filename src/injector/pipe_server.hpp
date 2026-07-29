@@ -25,7 +25,7 @@ namespace Injector {
     public:
         explicit PipeServer(const std::wstring& browserType);
         void Create();
-        void WaitForClient();
+        void WaitForClient(HANDLE hProcess);
         void SendConfig(bool verbose, bool fingerprint, const std::filesystem::path& output);
         void ProcessMessages(bool verbose);
         std::wstring GetName() const { return m_pipeName; }

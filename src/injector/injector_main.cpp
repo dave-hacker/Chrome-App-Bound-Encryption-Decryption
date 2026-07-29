@@ -60,7 +60,7 @@ void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, 
         injector.Inject(pipe.GetName());
 
         console.Debug("Awaiting payload connection...");
-        pipe.WaitForClient();
+        pipe.WaitForClient(procMgr.GetProcessHandle());
         console.Debug("  [+] Payload connected");
         
         pipe.SendConfig(verbose, fingerprint, output);

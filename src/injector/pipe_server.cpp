@@ -9,25 +9,96 @@
 #include <sstream>
 #include <regex>
 
+namespace {
+
+    static BOOL SyncWritePipe(HANDLE h, const void* buf, DWORD n, DWORD* written) {
+        OVERLAPPED ov = {};
+        ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        BOOL ok = WriteFile(h, buf, n, written, &ov);
+        if (!ok && GetLastError() == ERROR_IO_PENDING) {
+            WaitForSingleObject(ov.hEvent, INFINITE);
+            ok = GetOverlappedResult(h, &ov, written, FALSE);
+        }
+        CloseHandle(ov.hEvent);
+        return ok;
+    }
+
+    static BOOL SyncReadPipe(HANDLE h, void* buf, DWORD n, DWORD* read) {
+        OVERLAPPED ov = {};
+        ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        BOOL ok = ReadFile(h, buf, n, read, &ov);
+        if (!ok && GetLastError() == ERROR_IO_PENDING) {
+            WaitForSingleObject(ov.hEvent, INFINITE);
+            ok = GetOverlappedResult(h, &ov, read, FALSE);
+        }
+        CloseHandle(ov.hEvent);
+        return ok;
+    }
+
+}
+
 namespace Injector {
 
     PipeServer::PipeServer(const std::wstring& browserType)
         : m_pipeName(GenerateName(browserType)), m_browserType(browserType) {}
 
     void PipeServer::Create() {
-        m_hPipe.reset(CreateNamedPipeW(m_pipeName.c_str(), PIPE_ACCESS_DUPLEX,
+        m_hPipe.reset(CreateNamedPipeW(m_pipeName.c_str(),
+                                       PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
                                        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
                                        1, 4096, 4096, 0, nullptr));
-        
+
         if (!m_hPipe) {
             throw std::runtime_error("CreateNamedPipeW failed: " + std::to_string(GetLastError()));
         }
     }
 
-    void PipeServer::WaitForClient() {
-        if (!ConnectNamedPipe(m_hPipe.get(), nullptr) && GetLastError() != ERROR_PIPE_CONNECTED) {
-            throw std::runtime_error("ConnectNamedPipe failed: " + std::to_string(GetLastError()));
+    void PipeServer::WaitForClient(HANDLE hProcess) {
+        OVERLAPPED ov = {};
+        ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!ov.hEvent)
+            throw std::runtime_error("CreateEvent failed: " + std::to_string(GetLastError()));
+
+        BOOL connected = ConnectNamedPipe(m_hPipe.get(), &ov);
+        DWORD lastErr = GetLastError();
+
+        if (connected || lastErr == ERROR_PIPE_CONNECTED) {
+            CloseHandle(ov.hEvent);
+            return;
         }
+
+        if (lastErr != ERROR_IO_PENDING) {
+            CloseHandle(ov.hEvent);
+            throw std::runtime_error("ConnectNamedPipe failed: " + std::to_string(lastErr));
+        }
+
+        HANDLE waitOn[2] = { ov.hEvent, hProcess };
+        DWORD res = WaitForMultipleObjects(2, waitOn, FALSE, 30000);
+
+        if (res == WAIT_OBJECT_0) {
+            DWORD dummy = 0;
+            GetOverlappedResult(m_hPipe.get(), &ov, &dummy, FALSE);
+            CloseHandle(ov.hEvent);
+            return;
+        }
+
+        // Process died or timed out — cancel the pending connect and drain it
+        CancelIoEx(m_hPipe.get(), nullptr);
+        DWORD dummy = 0;
+        GetOverlappedResult(m_hPipe.get(), &ov, &dummy, TRUE);
+        CloseHandle(ov.hEvent);
+
+        if (res == WAIT_OBJECT_0 + 1) {
+            DWORD code = STILL_ACTIVE;
+            GetExitCodeProcess(hProcess, &code);
+            throw std::runtime_error(
+                "Chrome process exited (code: " + std::to_string(code) +
+                ") before payload connected — Bootstrap may have crashed or been killed by AV");
+        }
+
+        throw std::runtime_error(
+            "Timeout: payload did not connect within 30s "
+            "(Bootstrap may have failed to resolve syscalls or map the PE)");
     }
 
     void PipeServer::SendConfig(bool verbose, bool fingerprint, const std::filesystem::path& output) {
@@ -43,8 +114,8 @@ namespace Injector {
 
     void PipeServer::Write(const std::string& msg) {
         DWORD written = 0;
-        if (!WriteFile(m_hPipe.get(), msg.c_str(), static_cast<DWORD>(msg.length() + 1), &written, nullptr)) {
-            throw std::runtime_error("WriteFile failed");
+        if (!SyncWritePipe(m_hPipe.get(), msg.c_str(), static_cast<DWORD>(msg.length() + 1), &written)) {
+            throw std::runtime_error("WriteFile failed: " + std::to_string(GetLastError()));
         }
     }
 
@@ -70,7 +141,7 @@ namespace Injector {
             }
 
             DWORD read = 0;
-            if (!ReadFile(m_hPipe.get(), buffer, sizeof(buffer) - 1, &read, nullptr) || read == 0) {
+            if (!SyncReadPipe(m_hPipe.get(), buffer, sizeof(buffer) - 1, &read) || read == 0) {
                 if (GetLastError() == ERROR_BROKEN_PIPE) break;
                 continue;
             }

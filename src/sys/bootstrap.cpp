@@ -197,7 +197,10 @@ extern "C" DLLEXPORT ULONG_PTR WINAPI Bootstrap(LPVOID lpParameter) {
     GetProcAddress_t pGetProcAddress = nullptr;
     NtFlushInstructionCache_t pNtFlushInstructionCache = nullptr;
 
-    ULONG_PTR base = GetIp();
+    // Page-align down: PE headers are always page-aligned, and stepping by page
+    // avoids dereferencing false-positive MZ sequences inside PE section data,
+    // which caused STATUS_ACCESS_VIOLATION when e_lfanew landed outside the allocation.
+    ULONG_PTR base = GetIp() & ~(ULONG_PTR)0xFFF;
     ULONG_PTR peb = 0;
     ULONG_PTR k32Base = 0;
     ULONG_PTR ntdllBase = 0;
@@ -206,10 +209,13 @@ extern "C" DLLEXPORT ULONG_PTR WINAPI Bootstrap(LPVOID lpParameter) {
     while (true) {
         auto dos = reinterpret_cast<PIMAGE_DOS_HEADER>(base);
         if (dos->e_magic == IMAGE_DOS_SIGNATURE) {
-            auto nt = reinterpret_cast<PIMAGE_NT_HEADERS>(base + dos->e_lfanew);
-            if (nt->Signature == IMAGE_NT_SIGNATURE) break;
+            LONG lfanew = dos->e_lfanew;
+            if (lfanew > (LONG)sizeof(IMAGE_DOS_HEADER) && lfanew < 0x1000) {
+                auto nt = reinterpret_cast<PIMAGE_NT_HEADERS>(base + lfanew);
+                if (nt->Signature == IMAGE_NT_SIGNATURE) break;
+            }
         }
-        base--;
+        base -= 0x1000;
     }
 
     // 2. Get PEB
