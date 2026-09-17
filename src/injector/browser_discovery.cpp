@@ -19,11 +19,13 @@ namespace Injector {
 
     std::vector<BrowserInfo> BrowserDiscovery::FindAll() {
         std::vector<BrowserInfo> results;
-        for (const auto& [type, info] : g_browserMap) {
-            auto path = ResolvePath(type, info.first);
+        auto it = g_browserMap.begin();
+        while (it != g_browserMap.end()) {
+            auto path = ResolvePath(it->first, it->second.first);
             if (!path.empty()) {
-                results.push_back({type, info.first, path, info.second, GetFileVersion(path)});
+                results.push_back({it->first, it->second.first, path, it->second.second, GetFileVersion(path)});
             }
+            ++it;
         }
         return results;
     }
@@ -61,11 +63,13 @@ namespace Injector {
                 L"\\Registry\\Machine\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" + exeName
             };
 
-            for (const auto& regPath : appPaths) {
-                auto path = QueryRegistry(regPath);
+            size_t ap = 0;
+            while (ap < 2) {
+                auto path = QueryRegistry(appPaths[ap]);
                 if (!path.empty() && std::filesystem::exists(path)) {
                     return path;
                 }
+                ++ap;
             }
         }
 
@@ -103,11 +107,12 @@ namespace Injector {
             };
         }
 
-        for (const auto& [regKey, valueName] : altRegistry) {
-            auto result = QueryRegistryValue(regKey, valueName);
+        auto rit = altRegistry.begin();
+        while (rit != altRegistry.end()) {
+            auto result = QueryRegistryValue(rit->first, rit->second);
             if (!result.empty()) {
                 std::wstring fullPath;
-                if (valueName == L"InstallLocation") {
+                if (rit->second == L"InstallLocation") {
                     fullPath = result + L"\\" + exeName;
                 } else {
                     size_t start = (result[0] == L'"') ? 1 : 0;
@@ -120,6 +125,7 @@ namespace Injector {
                     return fullPath;
                 }
             }
+            ++rit;
         }
 
         return L"";

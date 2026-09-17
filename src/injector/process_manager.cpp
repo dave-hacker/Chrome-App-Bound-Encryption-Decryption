@@ -3,6 +3,7 @@
 
 #include "process_manager.hpp"
 #include "../sys/internal_api.hpp"
+#include "../core/obfuscate.hpp"
 #include <iostream>
 
 namespace Injector {
@@ -21,7 +22,7 @@ namespace Injector {
 
         if (!CreateProcessW(m_browser.fullPath.c_str(), nullptr, nullptr, nullptr,
                             FALSE, CREATE_SUSPENDED, nullptr, nullptr, &si, &pi)) {
-            throw std::runtime_error("CreateProcessW failed: " + std::to_string(GetLastError()));
+            throw std::runtime_error(std::string(OBF("CreateProcessW failed: ").c_str()) + std::to_string(GetLastError()));
         }
 
         m_hProcess.reset(pi.hProcess);
@@ -45,7 +46,7 @@ namespace Injector {
         HANDLE hFile = CreateFileW(m_browser.fullPath.c_str(), GENERIC_READ, FILE_SHARE_READ,
                                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (hFile == INVALID_HANDLE_VALUE) {
-            throw std::runtime_error("Failed to open executable for architecture check");
+            throw std::runtime_error(OBF("Failed to open executable for architecture check").c_str());
         }
 
         IMAGE_DOS_HEADER dosHeader{};
@@ -53,7 +54,7 @@ namespace Injector {
         if (!ReadFile(hFile, &dosHeader, sizeof(dosHeader), &bytesRead, nullptr) ||
             dosHeader.e_magic != IMAGE_DOS_SIGNATURE) {
             CloseHandle(hFile);
-            throw std::runtime_error("Invalid PE: bad DOS signature");
+            throw std::runtime_error(OBF("Invalid PE: bad DOS signature").c_str());
         }
 
         SetFilePointer(hFile, dosHeader.e_lfanew, nullptr, FILE_BEGIN);
@@ -61,7 +62,7 @@ namespace Injector {
         ReadFile(hFile, &ntSig, sizeof(ntSig), &bytesRead, nullptr);
         if (ntSig != IMAGE_NT_SIGNATURE) {
             CloseHandle(hFile);
-            throw std::runtime_error("Invalid PE: bad NT signature");
+            throw std::runtime_error(OBF("Invalid PE: bad NT signature").c_str());
         }
 
         IMAGE_FILE_HEADER fileHeader{};

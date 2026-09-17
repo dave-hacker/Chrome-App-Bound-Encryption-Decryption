@@ -14,9 +14,11 @@ namespace Core {
         // Compile-time FNV-1a for key generation
         constexpr uint64_t fnv1a_64(const char* str, size_t len) {
             uint64_t hash = 14695981039346656037ULL;
-            for (size_t i = 0; i < len; ++i) {
+            size_t i = 0;
+            while (i < len) {
                 hash ^= static_cast<uint64_t>(str[i]);
                 hash *= 1099511628211ULL;
+                ++i;
             }
             return hash;
         }
@@ -39,25 +41,30 @@ namespace Core {
     public:
         // Compile-time constructor - encrypts the string
         constexpr ObfuscatedString(const char (&str)[N], uint64_t seed) : m_seed(seed) {
-            for (size_t i = 0; i < N; ++i) {
+            size_t i = 0;
+            while (i < N) {
                 m_data[i] = str[i] ^ detail::key_byte(i, seed);
+                ++i;
             }
         }
 
         // Runtime decryption - returns the original string
         const char* c_str() const {
-            // Decrypt into thread-local buffer
             thread_local char buffer[N];
-            for (size_t i = 0; i < N; ++i) {
+            size_t i = 0;
+            while (i < N) {
                 buffer[i] = m_data[i] ^ detail::key_byte(i, m_seed);
+                ++i;
             }
             return buffer;
         }
 
         // Get decrypted string and store in provided buffer
         void decrypt_to(char* buffer) const {
-            for (size_t i = 0; i < N; ++i) {
+            size_t i = 0;
+            while (i < N) {
                 buffer[i] = m_data[i] ^ detail::key_byte(i, m_seed);
+                ++i;
             }
         }
 
